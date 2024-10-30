@@ -144,10 +144,3 @@ I am aware that I need to continue to improve my skills in seeing patients in re
 
 
 """
-
-
-
-
-
-
-api_key = "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"
