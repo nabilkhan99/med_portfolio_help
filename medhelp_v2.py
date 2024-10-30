@@ -4,7 +4,8 @@ import re
 import config
 
 def init_anthropic_client():
-    return anthropic.Anthropic(api_key=config.api_key)
+    # return anthropic.Anthropic(api_key=config.api_key)
+    return anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
 # def parse_capabilities(content):
 #     """Parse capabilities from config content."""
