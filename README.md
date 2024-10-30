@@ -15,7 +15,7 @@ CaseForge is a streamlined tool designed to help GP trainees generate and format
 
 2. Open Command Prompt (cmd.exe) and clone the repository:
    ```cmd
-   git clone <your-repository-url>
+   git clone https://github.com/nabilkhan99/med_portfolio_help.git
    cd med_portfolio_help
    ```
 
@@ -49,7 +49,7 @@ CaseForge is a streamlined tool designed to help GP trainees generate and format
 
 2. Clone the repository:
    ```bash
-   git clone <your-repository-url>
+   git clone https://github.com/nabilkhan99/med_portfolio_help.git
    cd med_portfolio_help
    ```
 
