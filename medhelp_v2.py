@@ -127,17 +127,53 @@ def main():
     
     capabilities = parse_capabilities(config.capability_content)
     
-    col1, col2 = st.columns([2, 1])
+    # Create main columns
+    col1, col2 = st.columns([2, 1], gap="large")
     
     with col1:
+        # Case description and generate button in left column
         case_description = st.text_area(
             "Enter your case description",
             height=200,
             help="Provide a detailed description of the clinical case",
             key="case_description"
         )
+        
+        # Generate button right below text area
+        generate_disabled = len(st.session_state.get('capabilities_select', [])) == 0 or \
+                          len(st.session_state.get('capabilities_select', [])) > 3 or \
+                          not case_description
+        
+        if st.button("Generate Case Review", 
+                    disabled=generate_disabled,
+                    type="primary",
+                    key="generate_button",
+                    #use_container_width=True
+                    ):
+            if len(st.session_state.get('capabilities_select', [])) == 0:
+                st.error("Please select at least one capability")
+            elif len(st.session_state.get('capabilities_select', [])) > 3:
+                st.error("Please select no more than 3 capabilities")
+            elif not case_description:
+                st.error("Please enter a case description")
+            else:
+                with st.spinner("Generating case review..."):
+                    try:
+                        review = generate_case_review(
+                            case_description,
+                            st.session_state.capabilities_select
+                        )
+                        
+                        if review:
+                            st.session_state.review_content = review
+                            st.session_state.sections = extract_sections(review, st.session_state.capabilities_select)
+                            st.session_state.selected_caps = st.session_state.capabilities_select
+                    
+                    except Exception as e:
+                        st.error(f"Error generating review: {str(e)}")
     
     with col2:
+        # Capabilities selection in right column
         selected_capabilities = st.multiselect(
             "Choose up to 3 capabilities",
             options=list(capabilities.keys()),
@@ -153,37 +189,10 @@ def main():
                     for point in capabilities[cap]:
                         st.write(point)
     
-    generate_disabled = len(selected_capabilities) == 0 or len(selected_capabilities) > 3 or not case_description
-    if st.button("Generate Case Review", 
-                 disabled=generate_disabled,
-                 type="primary",
-                 key="generate_button"):
-        if len(selected_capabilities) == 0:
-            st.error("Please select at least one capability")
-        elif len(selected_capabilities) > 3:
-            st.error("Please select no more than 3 capabilities")
-        elif not case_description:
-            st.error("Please enter a case description")
-        else:
-            with st.spinner("Generating case review..."):
-                try:
-                    review = generate_case_review(
-                        case_description,
-                        selected_capabilities
-                    )
-                    
-                    if review:
-                        st.session_state.review_content = review
-                        st.session_state.sections = extract_sections(review, selected_capabilities)
-                        st.session_state.selected_caps = selected_capabilities
-                
-                except Exception as e:
-                    st.error(f"Error generating review: {str(e)}")
-    
+    # Results section below both columns
     if st.session_state.sections:
         st.header("Generated Case Review")
         
-        # Add Case Summary section
         st.subheader("Case Summary")
         edited_summary = st.text_area(
             "Edit Case Summary",
@@ -233,6 +242,7 @@ def main():
         complete_review += edited_reflection + "\n\n"
         complete_review += "Learning needs identified from this event:\n"
         complete_review += edited_learning
+
         
 
     st.sidebar.markdown("## How to use")
@@ -241,7 +251,7 @@ def main():
     2. Select 1-3 capabilities from the dropdown
     3. Click 'Generate Case Review'
     4. Edit the generated sections as needed
-    5. Copy individual sections or download the complete review
+    5. Copy individual sections
     """)
 
 if __name__ == "__main__":
