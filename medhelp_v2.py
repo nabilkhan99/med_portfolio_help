@@ -129,10 +129,10 @@ def main():
     
     with col2:
         selected_capabilities = st.multiselect(
-            "Choose exactly 3 capabilities",
+            "Choose up to 3 capabilities",
             options=list(capabilities.keys()),
             max_selections=3,
-            help="Select three capabilities that this case demonstrates",
+            help="Select 1-3 capabilities that this case demonstrates",
             key="capabilities_select"
         )
         
@@ -143,13 +143,16 @@ def main():
                     for point in capabilities[cap]:
                         st.write(point)
     
-    generate_disabled = len(selected_capabilities) != 3 or not case_description
+    # Changed validation to allow 1-3 capabilities
+    generate_disabled = len(selected_capabilities) == 0 or len(selected_capabilities) > 3 or not case_description
     if st.button("Generate Case Review", 
                  disabled=generate_disabled,
                  type="primary",
                  key="generate_button"):
-        if len(selected_capabilities) != 3:
-            st.error("Please select exactly 3 capabilities")
+        if len(selected_capabilities) == 0:
+            st.error("Please select at least one capability")
+        elif len(selected_capabilities) > 3:
+            st.error("Please select no more than 3 capabilities")
         elif not case_description:
             st.error("Please enter a case description")
         else:
@@ -220,7 +223,7 @@ def main():
     st.sidebar.markdown("## How to use")
     st.sidebar.markdown("""
     1. Enter your case description in the text area
-    2. Select exactly 3 capabilities from the dropdown
+    2. Select 1-3 capabilities from the dropdown
     3. Click 'Generate Case Review'
     4. Edit the generated sections as needed
     5. Copy individual sections or download the complete review
