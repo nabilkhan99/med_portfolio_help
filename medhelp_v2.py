@@ -1,11 +1,17 @@
 import streamlit as st
 from st_copy_to_clipboard import st_copy_to_clipboard
 import anthropic
+import openai
 import re
 import config
 
 def init_anthropic_client():
     return anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+
+def init_openai_client():
+    """Initialize OpenAI client with API key from secrets."""
+    client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    return client
 
 def parse_capabilities(content):
     """Parse capabilities from config content."""
@@ -86,32 +92,48 @@ def extract_sections(text, selected_capabilities):
         return None
 
 def generate_case_review(case_description, selected_capabilities):
-    """Generate case review using Claude."""
-    client = init_anthropic_client()
-    
+    """Generate case review using selected AI model."""
     formatted_capabilities = format_capabilities(selected_capabilities)
-    
     full_prompt = config.prompt_content.format(
         case_description=case_description,
         capabilities=formatted_capabilities
     )
     
     try:
-        message = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=4000,
+        # Anthropic (Claude) implementation - commented out
+        # client = init_anthropic_client()
+        # message = client.messages.create(
+        #     model="claude-3-5-sonnet-20241022",
+        #     max_tokens=4000,
+        #     messages=[{
+        #         "role": "user",
+        #         "content": full_prompt
+        #     }]
+        # )
+        # 
+        # if hasattr(message, 'content') and isinstance(message.content, list):
+        #     content = ' '.join([block.text for block in message.content if hasattr(block, 'text')])
+        # elif hasattr(message, 'content'):
+        #     content = str(message.content)
+        # else:
+        #     raise Exception("Unexpected response format from Claude")
+            
+        # OpenAI (GPT-4) implementation
+        client = init_openai_client()
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[{
                 "role": "user",
                 "content": full_prompt
-            }]
+            }],
+            max_tokens=4000,
+            temperature=0.7
         )
         
-        if hasattr(message, 'content') and isinstance(message.content, list):
-            content = ' '.join([block.text for block in message.content if hasattr(block, 'text')])
-        elif hasattr(message, 'content'):
-            content = str(message.content)
+        if response.choices and len(response.choices) > 0:
+            content = response.choices[0].message.content
         else:
-            raise Exception("Unexpected response format from Claude")
+            raise Exception("No content in OpenAI response")
             
         return content
         
