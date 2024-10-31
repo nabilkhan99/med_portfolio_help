@@ -40,27 +40,36 @@ def format_capabilities(selected_capabilities):
 def extract_sections(text, selected_capabilities):
     """Extract the different sections from the generated text."""
     sections = {
+        "case_summary": "",
         "capabilities": {},
         "reflection": "",
         "learning_needs": ""
     }
     
-    text_chunks = text.split("Capability: ")
+    # Extract case summary
+    summary_pattern = r"Case Summary:(.*?)(?=Capability:|$)"
+    summary_match = re.search(summary_pattern, text, re.DOTALL)
+    if summary_match:
+        sections["case_summary"] = summary_match.group(1).strip()
     
+    # Extract capabilities
+    text_chunks = text.split("Capability: ")
     for cap_name in selected_capabilities:
         for chunk in text_chunks:
             if chunk.startswith(cap_name):
                 justification = re.split(r"Justification.*?:", chunk, maxsplit=1)[-1]
-                justification = re.split(r"(?:Capability:|Reflection:|Learning needs)", justification)[0]
+                justification = re.split(r"(?=Capability:|Reflection:|Learning needs)", justification)[0]
                 sections["capabilities"][cap_name] = justification.strip()
                 break
     
+    # Extract reflection
     reflection_pattern = r"Reflection: What will I maintain, improve or stop\?(.*?)(?=Learning needs|$)"
     reflection_match = re.search(reflection_pattern, text, re.DOTALL)
     if reflection_match:
         sections["reflection"] = reflection_match.group(1).strip()
     
-    learning_pattern = r"Learning needs identified from this event:(.*?)$"
+    # Extract learning needs
+    learning_pattern = r"Learning needs identified from this event:(.*?)(?=\Z)"
     learning_match = re.search(learning_pattern, text, re.DOTALL)
     if learning_match:
         sections["learning_needs"] = learning_match.group(1).strip()
@@ -73,6 +82,7 @@ def generate_case_review(case_description, selected_capabilities):
     
     formatted_capabilities = format_capabilities(selected_capabilities)
     
+    # Use the prompt template from config
     full_prompt = config.prompt_content.format(
         case_description=case_description,
         capabilities=formatted_capabilities
@@ -143,7 +153,6 @@ def main():
                     for point in capabilities[cap]:
                         st.write(point)
     
-    # Changed validation to allow 1-3 capabilities
     generate_disabled = len(selected_capabilities) == 0 or len(selected_capabilities) > 3 or not case_description
     if st.button("Generate Case Review", 
                  disabled=generate_disabled,
@@ -174,6 +183,16 @@ def main():
     if st.session_state.sections:
         st.header("Generated Case Review")
         
+        # Add Case Summary section
+        st.subheader("Case Summary")
+        edited_summary = st.text_area(
+            "Edit Case Summary",
+            st.session_state.sections["case_summary"],
+            height=150,
+            key="case_summary"
+        )
+        st_copy_to_clipboard(edited_summary, "Copy Case Summary")
+        
         for cap_name, justification in st.session_state.sections["capabilities"].items():
             st.subheader(cap_name)
             edited_cap = st.text_area(
@@ -187,7 +206,7 @@ def main():
         st.subheader("Reflection: What will I maintain, improve or stop?")
         edited_reflection = st.text_area(
             "Edit Reflection", 
-            st.session_state.sections["reflection"], 
+            st.session_state.sections["reflection"],
             height=150,
             key="reflection"
         )
@@ -196,13 +215,15 @@ def main():
         st.subheader("Learning needs identified from this event")
         edited_learning = st.text_area(
             "Edit Learning Needs", 
-            st.session_state.sections["learning_needs"], 
+            st.session_state.sections["learning_needs"],
             height=150,
             key="learning"
         )
         st_copy_to_clipboard(edited_learning, "Copy Learning Needs")
         
-        complete_review = ""
+        complete_review = "Case Summary:\n"
+        complete_review += edited_summary + "\n\n"
+        
         for cap_name in st.session_state.selected_caps:
             complete_review += f"Capability: {cap_name}\n"
             complete_review += "Justification [describe how your actions and approach link to the capability]:\n"
@@ -213,12 +234,6 @@ def main():
         complete_review += "Learning needs identified from this event:\n"
         complete_review += edited_learning
         
-        st.download_button(
-            "Download Complete Review",
-            complete_review,
-            file_name="case_review.md",
-            mime="text/markdown"
-        )
 
     st.sidebar.markdown("## How to use")
     st.sidebar.markdown("""
