@@ -85,26 +85,35 @@ Community orientation
 
 prompt_content = """
 
-I am a GP Trainee. Write a clinical case review for my GP Portfolio. 
+I am a GP Trainee. Write a clinical case review for my GP Portfolio based on the case description below. Please structure the response carefully with ALL of the following sections in order:
 
-Here is a short description of the case you should write a clinical case review for:
-
-{case_description}
-
-Here is the guidance from the RCGP: 'You are expected, after a brief description of the case, to reflect on what you need to maintain, improve, or stop doing. Before considering this, it is recommended that you reflect on what went well and why, so that you can maintain these behaviours. This reflection should include actions required in response to your emotional needs as well as clinical and educational actions i.e. 'how did it make you feel?''
-
-Include 3 paragraphs on Capabilities that this entry provides evidence for and justification for including each capability:
+Case Summary:
+[Provide a clear, structured 2-3 paragraph summary of the key points, clinical decisions, and outcomes]
 
 {capabilities}
 
-Include a paragraph on: Reflection: What will I maintain, improve or stop? 
+Reflection: What will I maintain, improve or stop?
+[Reflect on:
+- What went well and why (to maintain these behaviors)
+- What could be improved in future similar cases
+- What should be stopped or done differently
+- Your emotional response to the case
+As per RCGP guidance: "This reflection should include actions required in response to your emotional needs as well as clinical and educational actions i.e. 'how did it make you feel?'"]
 
-Include a paragraph on: Learning needs identified from this event.
+Learning needs identified from this event:
+[List specific learning needs, knowledge gaps, or skills to develop based on this case]
 
-Please format the response as a clinical case review with clear sections and professional medical language.
+Here is the case to review:
+{case_description}
 
+Please ensure:
+- Each section is clearly labeled
+- Use professional medical language throughout
+- Make specific, actionable points in the reflection and learning needs sections
+- Link capabilities to concrete actions and decisions from the case
+- Include emotional aspects in the reflection as per RCGP guidance
 
-Here are two examples you can model from: 
+Here are two examples of good case reviews for reference:
 
 Example 1: 
 
