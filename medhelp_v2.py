@@ -39,42 +39,51 @@ def format_capabilities(selected_capabilities):
 
 def extract_sections(text, selected_capabilities):
     """Extract the different sections from the generated text."""
-    sections = {
-        "case_summary": "",
-        "capabilities": {},
-        "reflection": "",
-        "learning_needs": ""
-    }
-    
-    # Extract case summary
-    summary_pattern = r"Case Summary:(.*?)(?=Capability:|$)"
-    summary_match = re.search(summary_pattern, text, re.DOTALL)
-    if summary_match:
-        sections["case_summary"] = summary_match.group(1).strip()
-    
-    # Extract capabilities
-    text_chunks = text.split("Capability: ")
-    for cap_name in selected_capabilities:
-        for chunk in text_chunks:
-            if chunk.startswith(cap_name):
-                justification = re.split(r"Justification.*?:", chunk, maxsplit=1)[-1]
-                justification = re.split(r"(?=Capability:|Reflection:|Learning needs)", justification)[0]
-                sections["capabilities"][cap_name] = justification.strip()
-                break
-    
-    # Extract reflection
-    reflection_pattern = r"Reflection: What will I maintain, improve or stop\?(.*?)(?=Learning needs|$)"
-    reflection_match = re.search(reflection_pattern, text, re.DOTALL)
-    if reflection_match:
-        sections["reflection"] = reflection_match.group(1).strip()
-    
-    # Extract learning needs
-    learning_pattern = r"Learning needs identified from this event:(.*?)(?=\Z)"
-    learning_match = re.search(learning_pattern, text, re.DOTALL)
-    if learning_match:
-        sections["learning_needs"] = learning_match.group(1).strip()
-    
-    return sections
+    try:
+        sections = {
+            "case_summary": "",
+            "capabilities": {},
+            "reflection": "",
+            "learning_needs": ""
+        }
+        
+        # Extract case summary
+        summary_pattern = r"Case Summary:(.*?)(?=Capability:|$)"
+        summary_match = re.search(summary_pattern, text, re.DOTALL)
+        if summary_match:
+            sections["case_summary"] = summary_match.group(1).strip()
+        
+        # Extract capabilities with better error handling
+        text_chunks = text.split("Capability: ")
+        for cap_name in selected_capabilities:
+            found = False
+            for chunk in text_chunks:
+                if chunk.startswith(cap_name):
+                    justification = re.split(r"Justification.*?:", chunk, maxsplit=1)[-1]
+                    justification = re.split(r"(?=Capability:|Reflection:|Learning needs)", justification)[0]
+                    sections["capabilities"][cap_name] = justification.strip()
+                    found = True
+                    break
+            if not found:
+                st.warning(f"Could not find content for capability: {cap_name}")
+                sections["capabilities"][cap_name] = ""
+        
+        # Extract reflection
+        reflection_pattern = r"Reflection: What will I maintain, improve or stop\?(.*?)(?=Learning needs|$)"
+        reflection_match = re.search(reflection_pattern, text, re.DOTALL)
+        if reflection_match:
+            sections["reflection"] = reflection_match.group(1).strip()
+        
+        # Extract learning needs
+        learning_pattern = r"Learning needs identified from this event:(.*?)(?=\Z)"
+        learning_match = re.search(learning_pattern, text, re.DOTALL)
+        if learning_match:
+            sections["learning_needs"] = learning_match.group(1).strip()
+        
+        return sections
+    except Exception as e:
+        st.error(f"Error extracting sections: {str(e)}")
+        return None
 
 def generate_case_review(case_description, selected_capabilities):
     """Generate case review using Claude."""
@@ -82,7 +91,6 @@ def generate_case_review(case_description, selected_capabilities):
     
     formatted_capabilities = format_capabilities(selected_capabilities)
     
-    # Use the prompt template from config
     full_prompt = config.prompt_content.format(
         case_description=case_description,
         capabilities=formatted_capabilities
@@ -112,26 +120,26 @@ def generate_case_review(case_description, selected_capabilities):
 
 def main():
     st.set_page_config(
-        page_title="GP io Case Review Generator",
+        page_title="GP Portfolio Case Review Generator",
         page_icon="🏥",
         layout="wide"
     )
 
+    # Initialize session state
     if 'initialized' not in st.session_state:
         st.session_state.initialized = True
         st.session_state.review_content = None
         st.session_state.sections = None
-        st.session_state.selected_caps = None
+        st.session_state.selected_caps = []
+        st.session_state.capabilities_select = []
     
     st.title("GP Portfolio Case Review Generator 🏥")
     
     capabilities = parse_capabilities(config.capability_content)
     
-    # Create main columns
     col1, col2 = st.columns([2, 1], gap="large")
     
     with col1:
-        # Case description and generate button in left column
         case_description = st.text_area(
             "Enter your case description",
             height=200,
@@ -139,7 +147,7 @@ def main():
             key="case_description"
         )
         
-        # Generate button right below text area
+        # Button logic with better state handling
         generate_disabled = len(st.session_state.get('capabilities_select', [])) == 0 or \
                           len(st.session_state.get('capabilities_select', [])) > 3 or \
                           not case_description
@@ -147,13 +155,11 @@ def main():
         if st.button("Generate Case Review", 
                     disabled=generate_disabled,
                     type="primary",
-                    key="generate_button",
-                    #use_container_width=True
-                    ):
+                    key="generate_button"):
             if len(st.session_state.get('capabilities_select', [])) == 0:
                 st.error("Please select at least one capability")
             elif len(st.session_state.get('capabilities_select', [])) > 3:
-                st.error("Please select no more than 3 capabilities")
+                st.error("Please select no more than three capabilities")
             elif not case_description:
                 st.error("Please enter a case description")
             else:
@@ -167,13 +173,15 @@ def main():
                         if review:
                             st.session_state.review_content = review
                             st.session_state.sections = extract_sections(review, st.session_state.capabilities_select)
-                            st.session_state.selected_caps = st.session_state.capabilities_select
-                    
+                            st.session_state.selected_caps = st.session_state.capabilities_select.copy()
+                            
+                            if not st.session_state.sections:
+                                st.error("Failed to parse the generated review. Please try again.")
+                                return
                     except Exception as e:
                         st.error(f"Error generating review: {str(e)}")
     
     with col2:
-        # Capabilities selection in right column
         selected_capabilities = st.multiselect(
             "Choose up to 3 capabilities",
             options=list(capabilities.keys()),
@@ -189,10 +197,10 @@ def main():
                     for point in capabilities[cap]:
                         st.write(point)
     
-    # Results section below both columns
     if st.session_state.sections:
         st.header("Generated Case Review")
         
+        # Case Summary
         st.subheader("Case Summary")
         edited_summary = st.text_area(
             "Edit Case Summary",
@@ -202,16 +210,21 @@ def main():
         )
         st_copy_to_clipboard(edited_summary, "Copy Case Summary")
         
-        for cap_name, justification in st.session_state.sections["capabilities"].items():
-            st.subheader(cap_name)
-            edited_cap = st.text_area(
-                f"Edit justification for {cap_name}", 
-                justification, 
-                height=150, 
-                key=f"cap_{cap_name}"
-            )
-            st_copy_to_clipboard(edited_cap, f"Copy {cap_name} justification")
+        # Capabilities
+        capabilities_text = {}
+        for cap_name in st.session_state.selected_caps:
+            if cap_name in st.session_state.sections.get("capabilities", {}):
+                st.subheader(cap_name)
+                edited_cap = st.text_area(
+                    f"Edit justification for {cap_name}", 
+                    st.session_state.sections["capabilities"][cap_name],
+                    height=150,
+                    key=f"cap_{cap_name}"
+                )
+                capabilities_text[cap_name] = edited_cap
+                st_copy_to_clipboard(edited_cap, f"Copy {cap_name} justification")
         
+        # Reflection
         st.subheader("Reflection: What will I maintain, improve or stop?")
         edited_reflection = st.text_area(
             "Edit Reflection", 
@@ -221,6 +234,7 @@ def main():
         )
         st_copy_to_clipboard(edited_reflection, "Copy Reflection")
         
+        # Learning needs
         st.subheader("Learning needs identified from this event")
         edited_learning = st.text_area(
             "Edit Learning Needs", 
@@ -229,21 +243,6 @@ def main():
             key="learning"
         )
         st_copy_to_clipboard(edited_learning, "Copy Learning Needs")
-        
-        complete_review = "Case Summary:\n"
-        complete_review += edited_summary + "\n\n"
-        
-        for cap_name in st.session_state.selected_caps:
-            complete_review += f"Capability: {cap_name}\n"
-            complete_review += "Justification [describe how your actions and approach link to the capability]:\n"
-            complete_review += st.session_state.sections["capabilities"][cap_name] + "\n\n"
-        
-        complete_review += "Reflection: What will I maintain, improve or stop?\n"
-        complete_review += edited_reflection + "\n\n"
-        complete_review += "Learning needs identified from this event:\n"
-        complete_review += edited_learning
-
-        
 
     st.sidebar.markdown("## How to use")
     st.sidebar.markdown("""
@@ -251,7 +250,7 @@ def main():
     2. Select 1-3 capabilities from the dropdown
     3. Click 'Generate Case Review'
     4. Edit the generated sections as needed
-    5. Copy individual sections
+    5. Copy individual sections as needed
     """)
 
 if __name__ == "__main__":
