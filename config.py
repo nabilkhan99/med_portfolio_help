@@ -130,7 +130,7 @@ Here is the case to review:
 {case_description}
 
 Please ensure:
-- Each section is clearly labeled
+- Each section is clearly labeled and populated
 - Use professional medical language throughout
 - Make specific, actionable points in the reflection and learning needs sections
 - Link capabilities to concrete actions and decisions from the case
@@ -173,6 +173,9 @@ I will continue to improve my time management skills during busy working periods
 
 Learning needs identified from this event:
 I am aware that I need to continue to improve my skills in seeing patients in remote of nonclinical environments, for example on home visits. There are parallels with seeing patients with medical problems OOH in a psychiatric hospital with doing home visits, as psychiatric 5 hospitals are not set up for medical emergencies, and is it very limited in terms of what medical problems can be dealt with. 
+"""
 
-
+system_prompt = """
+You are an AI assistant helping users with their GP training portfolio. Users will give case descriptions and you will help by generating text specifically based on the capabilities given and structured and to the same level of detail as the examples which will be provided.
+Do not use any special characters in the output at all. E.g no *,$,& etc.
 """
