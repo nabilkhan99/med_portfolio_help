@@ -1,3 +1,8 @@
+
+
+
+
+
 import streamlit as st
 from st_copy_to_clipboard import st_copy_to_clipboard
 import anthropic
@@ -94,41 +99,19 @@ def extract_sections(text, selected_capabilities):
 def generate_case_review(case_description, selected_capabilities):
     """Generate case review using selected AI model."""
     formatted_capabilities = format_capabilities(selected_capabilities)
-    full_prompt = config.prompt_content.format(
+    full_prompt = st.session_state.current_prompt.format(
         case_description=case_description,
         capabilities=formatted_capabilities
     )
     
     try:
-        # Anthropic (Claude) implementation - commented out
-        # client = init_anthropic_client()
-        # message = client.messages.create(
-        #     model="claude-3-5-sonnet-20241022",
-        #     max_tokens=4000,
-        #     messages=[{
-        #         "role": "system",
-        #         "content": config.system_prompt,
-        #         "role": "user",
-        #         "content": full_prompt
-        #     }]
-        # )
-        # 
-        # if hasattr(message, 'content') and isinstance(message.content, list):
-        #     content = ' '.join([block.text for block in message.content if hasattr(block, 'text')])
-        #     content = content.replace('*', '').replace('#', '')
-        # elif hasattr(message, 'content'):
-        #     content = str(message.content)
-        #     content = content.replace('*', '').replace('#', '')
-        # else:
-        #     raise Exception("Unexpected response format from Claude")
-            
         # OpenAI (GPT-4) implementation
         client = init_openai_client()
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{
                 "role": "system",
-                "content": config.system_prompt,
+                "content": st.session_state.current_system_prompt,
                 "role": "user",
                 "content": full_prompt,
             }],
@@ -138,7 +121,7 @@ def generate_case_review(case_description, selected_capabilities):
         
         if response.choices and len(response.choices) > 0:
             content = response.choices[0].message.content
-            content = content.replace('*', '').replace('#', '')
+            content = content.replace('*', '').replace('#', '').replace('-','')
         else:
             raise Exception("No content in OpenAI response")
             
@@ -161,8 +144,73 @@ def main():
         st.session_state.sections = None
         st.session_state.selected_caps = []
         st.session_state.capabilities_select = []
+        st.session_state.current_prompt = config.prompt_content
+        st.session_state.current_system_prompt = config.system_prompt
+        st.session_state.show_prompt_editor = False
     
     st.title("GP Portfolio Case Review Generator 🏥")
+    
+    # Add prompt editor toggle in sidebar
+    with st.sidebar:
+        st.markdown("## How to use")
+        st.markdown("""
+        1. Enter your case description in the text area
+        2. Select 1-3 capabilities from the dropdown
+        3. Click 'Generate Case Review'
+        4. Edit the generated sections as needed
+        5. Copy individual sections as needed
+        """)
+        
+        st.markdown("---")
+        st.markdown("## Advanced Settings")
+        show_prompt_editor = st.toggle("Show Prompt Editors", value=st.session_state.show_prompt_editor)
+        st.session_state.show_prompt_editor = show_prompt_editor
+    
+    # Show prompt editors if toggled
+    if st.session_state.show_prompt_editor:
+        st.markdown("---")
+        
+        # System Prompt Editor
+        st.subheader("System Prompt Editor")
+        edited_system_prompt = st.text_area(
+            "Edit System Prompt",
+            value=st.session_state.current_system_prompt,
+            height=200,
+            help="Edit the system prompt that sets the AI's behavior and context."
+        )
+        
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("Update System Prompt", type="primary", key="update_system"):
+                st.session_state.current_system_prompt = edited_system_prompt
+                st.success("System prompt updated successfully!")
+        with col2:
+            if st.button("Reset System Prompt", key="reset_system"):
+                st.session_state.current_system_prompt = config.system_prompt
+                st.success("System prompt reset to default!")
+        
+        st.markdown("---")
+        
+        # Main Prompt Editor
+        st.subheader("Main Prompt Template Editor")
+        edited_prompt = st.text_area(
+            "Edit Prompt Template",
+            value=st.session_state.current_prompt,
+            height=300,
+            help="Edit the prompt template. Use {case_description} and {capabilities} as placeholders."
+        )
+        
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("Update Prompt", type="primary", key="update_main"):
+                st.session_state.current_prompt = edited_prompt
+                st.success("Main prompt updated successfully!")
+        with col2:
+            if st.button("Reset Prompt", key="reset_main"):
+                st.session_state.current_prompt = config.prompt_content
+                st.success("Main prompt reset to default!")
+        
+        st.markdown("---")
     
     capabilities = parse_capabilities(config.capability_content)
     
@@ -272,15 +320,6 @@ def main():
             key="learning"
         )
         st_copy_to_clipboard(edited_learning, "Copy Learning Needs")
-
-    st.sidebar.markdown("## How to use")
-    st.sidebar.markdown("""
-    1. Enter your case description in the text area
-    2. Select 1-3 capabilities from the dropdown
-    3. Click 'Generate Case Review'
-    4. Edit the generated sections as needed
-    5. Copy individual sections as needed
-    """)
 
 if __name__ == "__main__":
     main()
