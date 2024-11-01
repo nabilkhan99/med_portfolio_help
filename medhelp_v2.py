@@ -106,6 +106,8 @@ def generate_case_review(case_description, selected_capabilities):
         #     model="claude-3-5-sonnet-20241022",
         #     max_tokens=4000,
         #     messages=[{
+        #         "role": "system",
+        #         "content": config.system_prompt,
         #         "role": "user",
         #         "content": full_prompt
         #     }]
@@ -113,8 +115,10 @@ def generate_case_review(case_description, selected_capabilities):
         # 
         # if hasattr(message, 'content') and isinstance(message.content, list):
         #     content = ' '.join([block.text for block in message.content if hasattr(block, 'text')])
+        #     content = content.replace('*', '').replace('#', '')
         # elif hasattr(message, 'content'):
         #     content = str(message.content)
+        #     content = content.replace('*', '').replace('#', '')
         # else:
         #     raise Exception("Unexpected response format from Claude")
             
@@ -123,8 +127,10 @@ def generate_case_review(case_description, selected_capabilities):
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{
+                "role": "system",
+                "content": config.system_prompt,
                 "role": "user",
-                "content": full_prompt
+                "content": full_prompt,
             }],
             max_tokens=4000,
             temperature=0.7
@@ -132,6 +138,7 @@ def generate_case_review(case_description, selected_capabilities):
         
         if response.choices and len(response.choices) > 0:
             content = response.choices[0].message.content
+            content = content.replace('*', '').replace('#', '')
         else:
             raise Exception("No content in OpenAI response")
             
