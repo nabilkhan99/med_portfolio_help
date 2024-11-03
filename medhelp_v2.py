@@ -91,6 +91,30 @@ def extract_sections(text, selected_capabilities):
         st.error(f"Error extracting sections: {str(e)}")
         return None
 
+def generate_title(case_description):
+    """Generate a brief title from the case description."""
+    try:
+        client = init_openai_client()
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "system",
+                "content": "Generate a brief (4-6 words) clinical case title from the following case description. Make it professional and medical in nature.",
+                "role": "user",
+                "content": f"Generate a brief (4-6 words) clinical case title from the following case description. Make it professional and medical in nature. This is the  case description: \n{case_description}"
+            }],
+            max_tokens=50,
+            temperature=0.7
+        )
+        
+        if response.choices and len(response.choices) > 0:
+            return response.choices[0].message.content.strip()
+        else:
+            return "Case Review"
+            
+    except Exception as e:
+        return "Case Review"
+
 def generate_case_review(case_description, selected_capabilities):
     """Generate case review using selected AI model."""
     formatted_capabilities = format_capabilities(selected_capabilities)
@@ -161,6 +185,7 @@ def main():
         st.session_state.sections = None
         st.session_state.selected_caps = []
         st.session_state.capabilities_select = []
+        st.session_state.case_title = None
     
     st.title("GP Portfolio Case Review Generator 🏥")
     
@@ -193,6 +218,9 @@ def main():
             else:
                 with st.spinner("Generating case review..."):
                     try:
+                        # Generate title first
+                        st.session_state.case_title = generate_title(case_description)
+                        
                         review = generate_case_review(
                             case_description,
                             st.session_state.capabilities_select
@@ -226,7 +254,7 @@ def main():
                         st.write(point)
     
     if st.session_state.sections:
-        st.header("Generated Case Review")
+        st.header(st.session_state.case_title or "Case Review")
         
         # Brief Description section
         st.subheader("Brief Description")
