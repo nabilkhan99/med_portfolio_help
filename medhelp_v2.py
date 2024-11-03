@@ -108,7 +108,7 @@ def generate_title(case_description):
         )
         
         if response.choices and len(response.choices) > 0:
-            return response.choices[0].message.content.strip()
+            return response.choices[0].message.content.strip().replace('"',"")
         else:
             return "Case Review"
             
