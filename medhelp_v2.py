@@ -5,6 +5,14 @@ import openai
 import re
 import config
 
+
+st.set_page_config(
+        page_title="GP Portfolio Case Review Generator",
+        page_icon="🏥",
+        layout="wide"
+    )
+
+
 def init_anthropic_client():
     return anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
@@ -43,6 +51,7 @@ def format_capabilities(selected_capabilities):
         formatted_text += "Justification [describe how your actions and approach link to the capability]:\n\n"
     return formatted_text
 
+
 def extract_sections(text, selected_capabilities):
     """Extract the different sections from the generated text."""
     try:
@@ -54,34 +63,51 @@ def extract_sections(text, selected_capabilities):
         }
         
         # Extract brief description
-        summary_pattern = r"Brief Description:(.*?)(?=Capability:|$)"
+        summary_pattern = r"Brief Description:\s*(.*?)(?=\n\n|$)"
         summary_match = re.search(summary_pattern, text, re.DOTALL)
         if summary_match:
             sections["brief_description"] = summary_match.group(1).strip()
         
-        # Extract capabilities with better error handling
-        text_chunks = text.split("Capability: ")
+        # Extract capabilities - handle both formats
         for cap_name in selected_capabilities:
-            found = False
-            for chunk in text_chunks:
-                if chunk.startswith(cap_name):
-                    justification = re.split(r"Justification.*?:", chunk, maxsplit=1)[-1]
-                    justification = re.split(r"(?=Capability:|Reflection:|Learning needs)", justification)[0]
-                    sections["capabilities"][cap_name] = justification.strip()
-                    found = True
+            # Try multiple patterns to match different formats
+            patterns = [
+                # Pattern 1: Full format with "Capability:" prefix and "Justification:"
+                f"Capability: {re.escape(cap_name)}.*?Justification.*?:(.*?)(?=Capability:|Reflection:|Learning needs|$)",
+                # Pattern 2: Just capability name with colon
+                f"{re.escape(cap_name)}:(.*?)(?=\n\n[A-Za-z]|Reflection:|Learning needs|$)",
+                # Pattern 3: Just capability name without colon
+                f"{re.escape(cap_name)}\n(.*?)(?=\n\n[A-Za-z]|Reflection:|Learning needs|$)"
+            ]
+            
+            content = None
+            for pattern in patterns:
+                match = re.search(pattern, text, re.DOTALL)
+                if match:
+                    content = match.group(1).strip()
                     break
-            if not found:
+            
+            if content:
+                sections["capabilities"][cap_name] = content
+            else:
                 st.warning(f"Could not find content for capability: {cap_name}")
                 sections["capabilities"][cap_name] = ""
         
-        # Extract reflection
-        reflection_pattern = r"Reflection: What will I maintain, improve or stop\?(.*?)(?=Learning needs|$)"
-        reflection_match = re.search(reflection_pattern, text, re.DOTALL)
-        if reflection_match:
-            sections["reflection"] = reflection_match.group(1).strip()
+        # Extract reflection (handle with or without question mark)
+        reflection_patterns = [
+            r"Reflection: What will I maintain, improve or stop\?(.*?)(?=Learning needs|$)",
+            r"Reflection: What will I maintain, improve or stop(.*?)(?=Learning needs|$)",
+            r"Reflection:(.*?)(?=Learning needs|$)"
+        ]
+        
+        for pattern in reflection_patterns:
+            reflection_match = re.search(pattern, text, re.DOTALL)
+            if reflection_match:
+                sections["reflection"] = reflection_match.group(1).strip()
+                break
         
         # Extract learning needs
-        learning_pattern = r"Learning needs identified from this event:(.*?)(?=\Z)"
+        learning_pattern = r"Learning needs identified from this event:(.*?)(?=$)"
         learning_match = re.search(learning_pattern, text, re.DOTALL)
         if learning_match:
             sections["learning_needs"] = learning_match.group(1).strip()
@@ -90,19 +116,197 @@ def extract_sections(text, selected_capabilities):
     except Exception as e:
         st.error(f"Error extracting sections: {str(e)}")
         return None
+    
+
+def improve_case_with_ai(original_case, improvement_prompt, session_state):
+    """Improve the case review while maintaining structure and conversation context."""
+    try:
+        client = init_openai_client()
+        
+        # Start with system message and core examples
+        messages = [
+            {
+                "role": "system",
+                "content": config.SYSTEM_PROMPT
+            },
+            {
+                "role": "user",
+                "content": config.EXAMPLE_1
+            },
+            {
+                "role": "assistant",
+                "content": config.EXAMPLE_1_RESPONSE
+            },
+            {
+                "role": "user",
+                "content": config.EXAMPLE_2
+            },
+            {
+                "role": "assistant",
+                "content": config.EXAMPLE_2_RESPONSE
+            }
+        ]
+        
+        # Add the conversation history if it exists
+        if hasattr(session_state, 'llm_conversation_history') and session_state.llm_conversation_history:
+            # Get the initial case generation interaction
+            initial_generation = next(
+                (msg for msg in session_state.llm_conversation_history 
+                 if "Generate a structured case review" in msg.get("content", "")), 
+                None
+            )
+            if initial_generation:
+                messages.extend([
+                    initial_generation,
+                    session_state.llm_conversation_history[
+                        session_state.llm_conversation_history.index(initial_generation) + 1
+                    ]
+                ])
+            
+            # Add recent improvement interactions (last 2 rounds)
+            recent_improvements = [
+                msg for msg in session_state.llm_conversation_history[-4:]
+                if "Improve the case" in msg.get("content", "")
+            ]
+            for improve_msg in recent_improvements:
+                msg_index = session_state.llm_conversation_history.index(improve_msg)
+                messages.extend([
+                    improve_msg,
+                    session_state.llm_conversation_history[msg_index + 1]
+                ])
+        
+        # Include the current review structure and selected capabilities
+        formatted_capabilities = format_capabilities(session_state.selected_caps)
+        
+        # Create a specific prompt for improvement while maintaining structure
+        improvement_system_prompt = """
+Please improve the following case review based on the user's request and our previous conversation.
+Maintain the exact same structure with these sections:
+1. Brief Description
+2. Capabilities (with justifications)
+3. Reflection: What will I maintain, improve or stop?
+4. Learning needs identified from this event
+
+Consider all previous improvements and maintain consistency with earlier discussions.
+Ensure each section keeps its exact heading format for proper extraction.
+"""
+
+        # Add the current improvement request with context
+        messages.extend([
+            {
+                "role": "system",
+                "content": improvement_system_prompt
+            },
+            {
+                "role": "user",
+                "content": f"""
+Current review:
+{session_state.review_content}
+
+Previous improvements made:
+{format_previous_improvements(session_state.interaction_history)}
+
+New improvement request: {improvement_prompt}
+
+Please maintain the same capabilities:
+{formatted_capabilities}
+"""
+            }
+        ])
+        
+        # Get improved version
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            max_tokens=4000,
+            temperature=0.7
+        )
+        
+        if response.choices and len(response.choices) > 0:
+            improved_content = response.choices[0].message.content
+            improved_content = improved_content.replace('*', '').replace('#', '')
+            
+            # Extract sections from improved content
+            new_sections = extract_sections(improved_content, session_state.selected_caps)
+            
+            if new_sections:
+                # Update session state with new content for the review only
+                session_state.review_content = improved_content
+                session_state.sections = new_sections
+                
+                # Store the improvement interaction without updating case_description
+                session_state.interaction_history.append({
+                    "original": original_case,
+                    "prompt": improvement_prompt,
+                    "improved": improved_content
+                })
+                
+                # Update conversation history
+                session_state.llm_conversation_history.extend([
+                    {
+                        "role": "user",
+                        "content": f"Improve the case: {improvement_prompt}"
+                    },
+                    {
+                        "role": "assistant",
+                        "content": improved_content
+                    }
+                ])
+                
+                return improved_content
+            else:
+                raise Exception("Failed to extract sections from improved content")
+        else:
+            raise Exception("No content in OpenAI response")
+            
+    except Exception as e:
+        raise Exception(f"Error improving case: {str(e)}")
+
+def format_previous_improvements(interaction_history):
+    """Format the previous improvements for context."""
+    if not interaction_history:
+        return "No previous improvements"
+    
+    formatted = []
+    for i, interaction in enumerate(interaction_history[-3:], 1):  # Last 3 improvements
+        formatted.append(f"{i}. Request: {interaction['prompt']}")
+    
+    return "\n".join(formatted)
+
+
+
+# Update session state initialization
+if 'initialized' not in st.session_state:
+    st.session_state.initialized = True
+    st.session_state.review_content = None
+    st.session_state.sections = None
+    st.session_state.selected_caps = []
+    st.session_state.capabilities_select = []
+    st.session_state.case_title = None
+    st.session_state.case_description = ""
+    st.session_state.previous_reviews = []
+    st.session_state.interaction_history = []
+    st.session_state.llm_conversation_history = []  # Add this line
+
 
 def generate_title(case_description):
     """Generate a brief title from the case description."""
     try:
         client = init_openai_client()
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a medical assistant that generates brief (4-6 words) clinical case titles. Make them professional and medical in nature."
+            },
+            {
+                "role": "user",
+                "content": f"Generate a brief clinical case title from this description:\n{case_description}"
+            }
+        ]
+        
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{
-                "role": "system",
-                "content": "Generate a brief (4-6 words) clinical case title from the following case description. Make it professional and medical in nature.",
-                "role": "user",
-                "content": f"Generate a brief (4-6 words) clinical case title from the following case description. Make it professional and medical in nature. This is the  case description: \n{case_description}"
-            }],
+            messages=messages,
             max_tokens=50,
             temperature=0.7
         )
@@ -116,46 +320,45 @@ def generate_title(case_description):
         return "Case Review"
 
 def generate_case_review(case_description, selected_capabilities):
-    """Generate case review using selected AI model."""
+    """Generate initial case review using selected AI model."""
     formatted_capabilities = format_capabilities(selected_capabilities)
-    full_prompt = config.prompt_content.format(
-        case_description=case_description,
-        capabilities=formatted_capabilities
-    )
     
     try:
-        # Anthropic (Claude) implementation - commented out
-        # client = init_anthropic_client()
-        # message = client.messages.create(
-        #     model="claude-3-5-sonnet-20241022",
-        #     max_tokens=4000,
-        #     messages=[{
-        #         "role": "system",
-        #         "content": config.system_prompt,
-        #         "role": "user",
-        #         "content": full_prompt
-        #     }]
-        # )
-        # 
-        # if hasattr(message, 'content') and isinstance(message.content, list):
-        #     content = ' '.join([block.text for block in message.content if hasattr(block, 'text')])
-        #     content = content.replace('*', '').replace('#', '')
-        # elif hasattr(message, 'content'):
-        #     content = str(message.content)
-        #     content = content.replace('*', '').replace('#', '')
-        # else:
-        #     raise Exception("Unexpected response format from Claude")
-            
-        # OpenAI (GPT-4) implementation
         client = init_openai_client()
+        messages = [
+            {
+                "role": "system",
+                "content": config.SYSTEM_PROMPT
+            },
+            {
+                "role": "user",
+                "content": config.EXAMPLE_1
+            },
+            {
+                "role": "assistant",
+                "content": config.EXAMPLE_1_RESPONSE
+            },
+            {
+                "role": "user",
+                "content": config.EXAMPLE_2
+            },
+            {
+                "role": "assistant",
+                "content": config.EXAMPLE_2_RESPONSE
+            },
+            {
+                "role": "user",
+                "content": f"""Generate a structured case review with the following:
+            {config.MAIN_PROMPT.format(
+                formatted_capabilities=formatted_capabilities,
+                case_description=case_description
+            )}"""
+            }
+        ]
+        
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{
-                "role": "system",
-                "content": config.system_prompt,
-                "role": "user",
-                "content": full_prompt,
-            }],
+            messages=messages,
             max_tokens=4000,
             temperature=0.7
         )
@@ -163,21 +366,28 @@ def generate_case_review(case_description, selected_capabilities):
         if response.choices and len(response.choices) > 0:
             content = response.choices[0].message.content
             content = content.replace('*', '').replace('#', '')
+            
+            # Store the initial generation in conversation history
+            if 'llm_conversation_history' not in st.session_state:
+                st.session_state.llm_conversation_history = []
+                
+            st.session_state.llm_conversation_history.extend([
+                messages[-1],  # The generation request
+                {
+                    "role": "assistant",
+                    "content": content
+                }
+            ])
+            
+            return content
         else:
             raise Exception("No content in OpenAI response")
             
-        return content
-        
     except Exception as e:
         raise Exception(f"Error generating review: {str(e)}")
+    
 
 def main():
-    st.set_page_config(
-        page_title="GP Portfolio Case Review Generator",
-        page_icon="🏥",
-        layout="wide"
-    )
-
     # Initialize session state
     if 'initialized' not in st.session_state:
         st.session_state.initialized = True
@@ -186,24 +396,86 @@ def main():
         st.session_state.selected_caps = []
         st.session_state.capabilities_select = []
         st.session_state.case_title = None
+        st.session_state.case_description = ""
+        st.session_state.previous_reviews = []
+        st.session_state.interaction_history = []
+        st.session_state.llm_conversation_history = []
     
     st.title("GP Portfolio Case Review Generator 🏥")
     
+    # Parse capabilities from config
     capabilities = parse_capabilities(config.capability_content)
     
+    # Create two columns layout
     col1, col2 = st.columns([2, 1], gap="large")
     
     with col1:
-        case_description = st.text_area(
-            "Enter your case description",
-            height=200,
-            help="Provide a detailed description of the clinical case",
-            key="case_description"
-        )
+        # Create tabs for case description and AI improvement
+        tabs = st.tabs(["Edit Case Description", "Improve with AI"])
         
+        # Tab 1: Edit Case Description
+        with tabs[0]:
+            if not st.session_state.case_description:
+                st.session_state.case_description = st.text_area(
+                    "Enter your case description",
+                    height=200,
+                    help="Provide a detailed description of the clinical case",
+                    key="case_description_input"
+                )
+            else:
+                # Allow editing of existing case description
+                new_description = st.text_area(
+                    "Edit your case description",
+                    value=st.session_state.case_description,
+                    height=200,
+                    key="case_description_edit"
+                )
+                if new_description != st.session_state.case_description:
+                    st.session_state.case_description = new_description
+        
+        # Tab 2: Improve with AI
+        with tabs[1]:
+            improvement_prompt = st.text_area(
+                "How would you like to improve the case?",
+                help="E.g., 'Make it shorter', 'Change patient's age to 25', 'Add more clinical details'",
+                height=100,
+                key="improvement_prompt"
+            )
+            
+            if st.button("Improve Case", key="improve_button_tab"):
+                with st.spinner("Improving case description..."):
+                    try:
+                        improved_case = improve_case_with_ai(
+                            st.session_state.case_description,
+                            improvement_prompt,
+                            st.session_state
+                        )
+                        # Store the interaction in history without updating case_description
+                        st.session_state.interaction_history.append({
+                            "original": st.session_state.case_description,
+                            "prompt": improvement_prompt,
+                            "improved": improved_case
+                        })
+                        st.success("Case improved successfully!")
+                    except Exception as e:
+                        st.error(f"Error improving case: {str(e)}")
+            
+            # # Show improvement history
+            # if st.session_state.interaction_history:
+            #     with st.expander("View Improvement History"):
+            #         for idx, interaction in enumerate(st.session_state.interaction_history):
+            #             st.write(f"Improvement {idx + 1}")
+            #             st.text(f"Request: {interaction['prompt']}")
+            #             st_copy_to_clipboard(
+            #                 interaction['improved'],
+            #                 f"Copy this version",
+            #                 key=f"copy_improvement_{idx}"
+            #             )
+        
+        # Generate button (below tabs)
         generate_disabled = len(st.session_state.get('capabilities_select', [])) == 0 or \
                           len(st.session_state.get('capabilities_select', [])) > 3 or \
-                          not case_description
+                          not st.session_state.case_description
         
         if st.button("Generate Case Review", 
                     disabled=generate_disabled,
@@ -213,20 +485,29 @@ def main():
                 st.error("Please select at least one capability")
             elif len(st.session_state.get('capabilities_select', [])) > 3:
                 st.error("Please select no more than three capabilities")
-            elif not case_description:
+            elif not st.session_state.case_description:
                 st.error("Please enter a case description")
             else:
                 with st.spinner("Generating case review..."):
                     try:
                         # Generate title first
-                        st.session_state.case_title = generate_title(case_description)
+                        st.session_state.case_title = generate_title(st.session_state.case_description)
                         
+                        # Generate the review
                         review = generate_case_review(
-                            case_description,
+                            st.session_state.case_description,
                             st.session_state.capabilities_select
                         )
                         
                         if review:
+                            # Store the review in history
+                            st.session_state.previous_reviews.append({
+                                "case_description": st.session_state.case_description,
+                                "capabilities": st.session_state.capabilities_select.copy(),
+                                "review": review
+                            })
+                            
+                            # Update session state
                             st.session_state.review_content = review
                             st.session_state.sections = extract_sections(review, st.session_state.capabilities_select)
                             st.session_state.selected_caps = st.session_state.capabilities_select.copy()
@@ -237,6 +518,7 @@ def main():
                     except Exception as e:
                         st.error(f"Error generating review: {str(e)}")
     
+    # Sidebar column (col2)
     with col2:
         selected_capabilities = st.multiselect(
             "Choose up to 3 capabilities",
@@ -253,6 +535,7 @@ def main():
                     for point in capabilities[cap]:
                         st.write(point)
     
+    # Display generated review sections
     if st.session_state.sections:
         st.header(st.session_state.case_title or "Case Review")
         
@@ -264,9 +547,9 @@ def main():
             height=150,
             key="brief_description"
         )
-        st_copy_to_clipboard(edited_summary, "Copy Brief Description")
+        st_copy_to_clipboard(edited_summary, "Copy Brief Description", key="copy_brief_description")
         
-        # Capabilities
+        # Capabilities sections
         capabilities_text = {}
         for cap_name in st.session_state.selected_caps:
             if cap_name in st.session_state.sections.get("capabilities", {}):
@@ -278,9 +561,13 @@ def main():
                     key=f"cap_{cap_name}"
                 )
                 capabilities_text[cap_name] = edited_cap
-                st_copy_to_clipboard(edited_cap, f"Copy {cap_name} justification")
+                st_copy_to_clipboard(
+                    edited_cap,
+                    f"Copy {cap_name} justification",
+                    key=f"copy_cap_{cap_name}"
+                )
         
-        # Reflection
+        # Reflection section
         st.subheader("Reflection: What will I maintain, improve or stop?")
         edited_reflection = st.text_area(
             "Edit Reflection", 
@@ -288,9 +575,13 @@ def main():
             height=150,
             key="reflection"
         )
-        st_copy_to_clipboard(edited_reflection, "Copy Reflection")
+        st_copy_to_clipboard(
+            edited_reflection,
+            "Copy Reflection",
+            key="copy_reflection"
+        )
         
-        # Learning needs
+        # Learning needs section
         st.subheader("Learning needs identified from this event")
         edited_learning = st.text_area(
             "Edit Learning Needs", 
@@ -298,8 +589,13 @@ def main():
             height=150,
             key="learning"
         )
-        st_copy_to_clipboard(edited_learning, "Copy Learning Needs")
+        st_copy_to_clipboard(
+            edited_learning,
+            "Copy Learning Needs",
+            key="copy_learning"
+        )
 
+    # Sidebar help section
     st.sidebar.markdown("## How to use")
     st.sidebar.markdown("""
     1. Enter your case description in the text area
