@@ -1,3 +1,4 @@
+
 import streamlit as st
 from st_copy_to_clipboard import st_copy_to_clipboard
 import anthropic
@@ -388,9 +389,10 @@ def generate_case_review(case_description, selected_capabilities):
     
 
 def main():
-    # Initialize session state
+    # Initialize session state variables
     if 'initialized' not in st.session_state:
         st.session_state.initialized = True
+        st.session_state.is_improve_mode = False
         st.session_state.review_content = None
         st.session_state.sections = None
         st.session_state.selected_caps = []
@@ -401,20 +403,19 @@ def main():
         st.session_state.interaction_history = []
         st.session_state.llm_conversation_history = []
     
+    # Ensure is_improve_mode exists in session state
+    if 'is_improve_mode' not in st.session_state:
+        st.session_state.is_improve_mode = False
+    
     st.title("GP Portfolio Case Review Generator 🏥")
     
-    # Parse capabilities from config
     capabilities = parse_capabilities(config.capability_content)
     
-    # Create two columns layout
     col1, col2 = st.columns([2, 1], gap="large")
     
     with col1:
-        # Create tabs for case description and AI improvement
-        tabs = st.tabs(["Edit Case Description", "Improve with AI"])
-        
-        # Tab 1: Edit Case Description
-        with tabs[0]:
+        if not st.session_state.is_improve_mode:
+            st.subheader("Edit Case Description")
             if not st.session_state.case_description:
                 st.session_state.case_description = st.text_area(
                     "Enter your case description",
@@ -423,7 +424,6 @@ def main():
                     key="case_description_input"
                 )
             else:
-                # Allow editing of existing case description
                 new_description = st.text_area(
                     "Edit your case description",
                     value=st.session_state.case_description,
@@ -432,9 +432,8 @@ def main():
                 )
                 if new_description != st.session_state.case_description:
                     st.session_state.case_description = new_description
-        
-        # Tab 2: Improve with AI
-        with tabs[1]:
+        else:
+            st.subheader("Improve with AI")
             improvement_prompt = st.text_area(
                 "How would you like to improve the case?",
                 help="E.g., 'Make it shorter', 'Change patient's age to 25', 'Add more clinical details'",
@@ -442,7 +441,7 @@ def main():
                 key="improvement_prompt"
             )
             
-            if st.button("Improve Case", key="improve_button_tab"):
+            if st.button("Improve Case"):
                 with st.spinner("Improving case description..."):
                     try:
                         improved_case = improve_case_with_ai(
@@ -450,7 +449,6 @@ def main():
                             improvement_prompt,
                             st.session_state
                         )
-                        # Store the interaction in history without updating case_description
                         st.session_state.interaction_history.append({
                             "original": st.session_state.case_description,
                             "prompt": improvement_prompt,
@@ -459,64 +457,67 @@ def main():
                         st.success("Case improved successfully!")
                     except Exception as e:
                         st.error(f"Error improving case: {str(e)}")
+
+        if not st.session_state.is_improve_mode:
+            generate_disabled = len(st.session_state.get('capabilities_select', [])) == 0 or \
+                            len(st.session_state.get('capabilities_select', [])) > 3 or \
+                            not st.session_state.case_description
             
-            # # Show improvement history
-            # if st.session_state.interaction_history:
-            #     with st.expander("View Improvement History"):
-            #         for idx, interaction in enumerate(st.session_state.interaction_history):
-            #             st.write(f"Improvement {idx + 1}")
-            #             st.text(f"Request: {interaction['prompt']}")
-            #             st_copy_to_clipboard(
-            #                 interaction['improved'],
-            #                 f"Copy this version",
-            #                 key=f"copy_improvement_{idx}"
-            #             )
-        
-        # Generate button (below tabs)
-        generate_disabled = len(st.session_state.get('capabilities_select', [])) == 0 or \
-                          len(st.session_state.get('capabilities_select', [])) > 3 or \
-                          not st.session_state.case_description
-        
-        if st.button("Generate Case Review", 
-                    disabled=generate_disabled,
-                    type="primary",
-                    key="generate_button"):
-            if len(st.session_state.get('capabilities_select', [])) == 0:
-                st.error("Please select at least one capability")
-            elif len(st.session_state.get('capabilities_select', [])) > 3:
-                st.error("Please select no more than three capabilities")
-            elif not st.session_state.case_description:
-                st.error("Please enter a case description")
-            else:
-                with st.spinner("Generating case review..."):
-                    try:
-                        # Generate title first
-                        st.session_state.case_title = generate_title(st.session_state.case_description)
-                        
-                        # Generate the review
-                        review = generate_case_review(
-                            st.session_state.case_description,
-                            st.session_state.capabilities_select
-                        )
-                        
-                        if review:
-                            # Store the review in history
-                            st.session_state.previous_reviews.append({
-                                "case_description": st.session_state.case_description,
-                                "capabilities": st.session_state.capabilities_select.copy(),
-                                "review": review
-                            })
+            if st.button("Generate Case Review", 
+                        disabled=generate_disabled,
+                        type="primary",
+                        key="generate_button"):
+                if len(st.session_state.get('capabilities_select', [])) == 0:
+                    st.error("Please select at least one capability")
+                elif len(st.session_state.get('capabilities_select', [])) > 3:
+                    st.error("Please select no more than three capabilities")
+                elif not st.session_state.case_description:
+                    st.error("Please enter a case description")
+                else:
+                    with st.spinner("Generating case review..."):
+                        try:
+                            st.session_state.case_title = generate_title(st.session_state.case_description)
+                            review = generate_case_review(
+                                st.session_state.case_description,
+                                st.session_state.capabilities_select
+                            )
                             
-                            # Update session state
-                            st.session_state.review_content = review
-                            st.session_state.sections = extract_sections(review, st.session_state.capabilities_select)
-                            st.session_state.selected_caps = st.session_state.capabilities_select.copy()
-                            
-                            if not st.session_state.sections:
-                                st.error("Failed to parse the generated review. Please try again.")
-                                return
-                    except Exception as e:
-                        st.error(f"Error generating review: {str(e)}")
+                            if review:
+                                st.session_state.previous_reviews.append({
+                                    "case_description": st.session_state.case_description,
+                                    "capabilities": st.session_state.capabilities_select.copy(),
+                                    "review": review
+                                })
+                                
+                                st.session_state.review_content = review
+                                st.session_state.sections = extract_sections(review, st.session_state.capabilities_select)
+                                st.session_state.selected_caps = st.session_state.capabilities_select.copy()
+                                st.session_state.is_improve_mode = True
+                                
+                                if not st.session_state.sections:
+                                    st.error("Failed to parse the generated review. Please try again.")
+                                    return
+                                
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Error generating review: {str(e)}")
+        
+        # New Case button (only shown in improve mode)
+        if st.session_state.is_improve_mode:
+            if st.button("New Case", type="secondary"):
+                # Reset all state variables
+                st.session_state.review_content = None
+                st.session_state.sections = None
+                st.session_state.selected_caps = []
+                st.session_state.capabilities_select = []
+                st.session_state.case_title = None
+                st.session_state.case_description = ""
+                st.session_state.previous_reviews = []
+                st.session_state.interaction_history = []
+                st.session_state.llm_conversation_history = []
+                st.session_state.is_improve_mode = False
+                st.rerun()
+
     
     # Sidebar column (col2)
     with col2:
@@ -607,3 +608,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
